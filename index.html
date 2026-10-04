@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>My AI Video</title>
+<style>
+  body{font-family:sans-serif;background:#111;color:#eee;padding:16px;max-width:600px;margin:auto}
+  input,textarea,button{width:100%;padding:12px;margin:6px 0;border-radius:8px;border:0;font-size:16px;box-sizing:border-box}
+  input,textarea{background:#222;color:#eee}
+  button{background:#7c3aed;color:#fff}
+  video,img{width:100%;margin-top:12px;border-radius:8px}
+</style>
+</head>
+<body>
+<h2>AI Video (20 sec)</h2>
+<input id="server" placeholder="Server URL">
+<label>Character ki photo (optional):</label>
+<input id="photo" type="file" accept="image/*" onchange="pick()">
+<img id="prev" style="display:none">
+<textarea id="prompt" rows="4" placeholder="Video ka description likho..."></textarea>
+<textarea id="speech" rows="4" placeholder="Urdu mein bolne wala text likho (taqreeban 45-50 alfaz = 20 second)"></textarea>
+<button id="btn" onclick="go()">Generate</button>
+<p id="msg"></p>
+<video id="vid" controls style="display:none"></video>
+
+<script>
+const $ = id => document.getElementById(id);
+const PASS = ""; // password lagana ho to yahan likho (Railway ke APP_PASSWORD jaisa)
+const hdr = () => ({"Content-Type":"application/json","X-Password":PASS});
+let imageData = "";
+if (location.protocol.startsWith("http")) $("server").value = location.origin;
+else $("server").value = "https://ai-video-production-d5a4.up.railway.app";
+
+function pick() {
+  const f = $("photo").files[0];
+  if (!f) return;
+  const img = new Image();
+  img.onload = () => {
+    const s = Math.min(1, 1024 / Math.max(img.width, img.height));
+    const c = document.createElement("canvas");
+    c.width = img.width * s; c.height = img.height * s;
+    c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+    imageData = c.toDataURL("image/jpeg", 0.85);
+    $("prev").src = imageData; $("prev").style.display = "block";
+  };
+  img.src = URL.createObjectURL(f);
+}
+
+async function go() {
+  const base = $("server").value.replace(/\/$/, "");
+  $("btn").disabled = true;
+  $("vid").style.display = "none";
+  $("msg").textContent = "Start ho raha hai...";
+  try {
+    const r = await fetch(base + "/generate", {method:"POST", headers:hdr(), body:JSON.stringify({prompt:$("prompt").value, image:imageData, speech:$("speech").value})});
+    const j = await r.json();
+    if (!j.id) { $("msg").textContent = "Error: " + (j.error || "unknown"); $("btn").disabled = false; return; }
+    poll(base, j.id);
+  } catch (e) { $("msg").textContent = "Server se connect nahi hua"; $("btn").disabled = false; }
+}
+
+async function poll(base, id) {
+  const r = await fetch(base + "/status?id=" + id, {headers:hdr()});
+  const j = await r.json();
+  if (!j.status) { $("msg").textContent = "Job nahi mili (server restart hua?). Dobara try karo."; $("btn").disabled = false; return; }
+  if (j.status === "succeeded") {
+    $("vid").src = base + "/video?id=" + id + "&p=" + encodeURIComponent(PASS);
+    $("vid").style.display = "block";
+    $("msg").textContent = "Video ready!";
+    $("btn").disabled = false;
+  } else if (j.status === "failed") {
+    $("msg").textContent = "Fail: " + j.error;
+    $("btn").disabled = false;
+  } else {
+    $("msg").textContent = j.progress;
+    setTimeout(() => poll(base, id), 4000);
+  }
+}
+</script>
+</body>
+</html>
